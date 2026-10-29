@@ -184,7 +184,9 @@ def _own_text(lines: list[str], sym, others: list) -> str:
     return "\n".join(lines[n - 1] for n in range(sym.start, min(sym.end, len(lines)) + 1) if n not in inner)
 
 
-def _rank(c: SymbolChange, u: blast.Uses | None, links: events.EventLinks | None) -> tuple[Prio, list[str]]:
+def _rank(
+    c: SymbolChange, u: blast.Uses | None, links: events.EventLinks | None, orphan: bool = False
+) -> tuple[Prio, list[str]]:
     callers = bool(u and u.total)
     other_files = bool(u and any(s.path != c.path for s in u.sites))
     coupled = bool(links and any(e.is_global for e in links.edges))  # a page-level listener elsewhere sees its events
@@ -195,6 +197,7 @@ def _rank(c: SymbolChange, u: blast.Uses | None, links: events.EventLinks | None
             ("signature changed", c.signature_changed),
             ("used in other files", other_files),
             ("event-coupled", coupled),
+            ("orphan", orphan),
         )
         if on
     ]
@@ -204,6 +207,8 @@ def _rank(c: SymbolChange, u: blast.Uses | None, links: events.EventLinks | None
         return Prio.SIGNATURE_WITH_CALLERS, tags
     if other_files and c.status == "modified" or coupled:
         return Prio.USED_ELSEWHERE, tags
+    if orphan:  # new code nothing but tests reaches is worth a look
+        return Prio.MODIFIED, tags
     if c.status == "modified":
         return Prio.MODIFIED, tags
     return (Prio.MINOR if c.status == "removed" else Prio.ADDED), tags
@@ -257,11 +262,21 @@ def build(
     mods = blast.modules([f.path for f in files if f.status == "A" and kinds[f.path] == "source"], sources)
     hits = blast.word_hits(repo, head, blast.symbol_names(all_changes) | set(mods.values()))  # one grep for all
     found = iter(blast.uses_many(repo, all_changes, head, hits=hits))
+    orphan_mods = blast.orphans(mods, hits)  # a whole file: its own item, not one per symbol
+    for path, tests in orphan_mods.items():
+        title = f"new module nothing imports: {blast.unused(tests, 'mention')}"
+        items.append(Item(Prio.MODIFIED, path, title, "", tags=["orphan"]))
     ev_index: events.Index | None = None  # built on first need: one grep for every event line
     for f, old_lines, new_lines, changes in parsed:
         covered_new: set[int] = set()
         covered_old: set[int] = set()
         olds, news = [c.old for c in changes if c.old], [c.new for c in changes if c.new]
+        check_unused = (  # per file: tests and entry points don't need callers
+            any(c.status == "added" for c in changes)
+            and f.path not in orphan_mods
+            and not blast.is_test(f.path)
+            and not blast.is_entry(f.path, sources.get(f.path, ""))
+        )
         for c in changes:
             u = next(found)
             links = None
@@ -271,8 +286,9 @@ def build(
                     ev_index = events.index(repo, head)
                     ev_index.sources.update(sources)
                 links = ev_index.edges(f.path, names)
-            prio, tags = _rank(c, u, links)
-            title = f"{c.sym.kind} `{c.sym.qualname}` {c.status}"
+            unused = blast.orphan_symbol(c, u, new_lines[c.new.start - 1]) if check_unused and c.new else None
+            prio, tags = _rank(c, u, links, bool(unused))
+            title = f"{c.sym.kind} `{c.sym.qualname}` {c.status}" + (f": {unused}" if unused else "")
             if c.signature_changed:
                 title += f": `{c.old.signature}` → `{c.new.signature}`"  # type: ignore[union-attr]
             body = "\n".join(h.text() for h in _symbol_hunks(old_lines, new_lines, c))
@@ -289,9 +305,6 @@ def build(
             else:
                 prio, title = (Prio.ADDED if kinds[f.path] == "doc" else Prio.MODIFIED), f.path
             items.append(Item(prio, f.path, title, "\n".join(h.text() for h in rest)))
-    for path, tests in blast.orphans(mods, hits).items():
-        why = f"only tests mention it ({', '.join(tests)})" if tests else "nothing else in the repo mentions it"
-        items.append(Item(Prio.MODIFIED, path, f"new module nothing imports: {why}", "", tags=["orphan"]))
     items.sort(key=lambda i: (i.priority, i.path))
     kept, omitted = _fit(items, budget)
     summary = [

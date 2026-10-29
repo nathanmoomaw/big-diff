@@ -35,7 +35,8 @@ class Site:
 class Uses:
     name: str
     total: int
-    sites: list[Site]
+    sites: list[Site]  # the first MAX_SITES, other files first
+    only_tests: list[str] | None = None  # every use is in these test files ([] = no uses); None otherwise
 
 
 def searchable(name: str) -> bool:
@@ -79,11 +80,14 @@ def uses_many(
         sites = [s for s in hits[c.sym.name] if not (own and s.path == c.path and own.start <= s.line <= own.end)]
         # callers in other files first: those are the ones a file-local review can't see
         sites.sort(key=lambda s: (s.path == c.path, s.path, s.line))
-        result.append(Uses(c.sym.name, len(sites), sites[:max_sites]))
+        result.append(Uses(c.sym.name, len(sites), sites[:max_sites], only_tests({s.path for s in sites})))
     return result
 
 
 MAIN_GUARD = re.compile(r"""^if\s+__name__\s*==\s*['"]__main__['"]""", re.M)
+# Run by a platform, not imported: serverless handlers, file-based routes, scripts, migrations.
+ENTRY_DIRS = {"lambda", "lambdas", "functions", "netlify", "api", "pages", "routes", "bin", "scripts", "migrations"}
+HANDLER = re.compile(r"^(export\s+(async\s+)?(const|function)\s+handler\b|exports\.handler\b|def\s+(lambda_)?handler\()", re.M)
 
 
 def is_test(path: str) -> bool:
@@ -95,6 +99,16 @@ def is_test(path: str) -> bool:
     )
 
 
+def only_tests(paths: set[str]) -> list[str] | None:
+    """The paths, sorted, if all of them are tests (none at all counts); else None."""
+    return sorted(paths) if all(map(is_test, paths)) else None
+
+
+def unused(tests: list[str], verb: str) -> str:
+    """How an orphan is described: who still uses it, if anyone."""
+    return f"only tests {verb} it ({', '.join(tests)})" if tests else f"nothing else {verb}s it"
+
+
 def module_name(path: str) -> str:
     """What other code calls a file when it imports it: its name up to the first dot
     (engine.worker.js → engine), or its folder for index/__init__."""
@@ -103,13 +117,23 @@ def module_name(path: str) -> str:
     return p.parent.name if stem in ("index", "__init__") and p.parent.name else stem
 
 
+def is_entry(path: str, src: str) -> bool:
+    """Code something outside the repo runs: a script, a serverless handler, a file-based route."""
+    return (
+        any(part in ENTRY_DIRS for part in Path(path).parts[:-1])
+        or src.startswith("#!")
+        or MAIN_GUARD.search(src) is not None
+        or HANDLER.search(src) is not None
+    )
+
+
 def modules(paths: list[str], sources: dict[str, str]) -> dict[str, str]:
-    """New source files worth an orphan check → their module names. Scripts (a shebang or a
-    `__main__` guard) are entry points, tests are tests, and generic names can't be searched."""
+    """New source files worth an orphan check → their module names. Entry points, tests and
+    generic names (which can't be searched) are left out."""
     out = {}
     for p in paths:
-        src, name = sources.get(p, ""), module_name(p)
-        if not (is_test(p) or src.startswith("#!") or MAIN_GUARD.search(src) or not searchable(name)):
+        name = module_name(p)
+        if not (is_test(p) or is_entry(p, sources.get(p, "")) or not searchable(name)):
             out[p] = name
     return out
 
@@ -120,7 +144,20 @@ def orphans(mods: dict[str, str], hits: dict[str, list[Site]]) -> dict[str, list
     one: this check should only speak up when it's sure."""
     found = {}
     for p, name in mods.items():
-        others = {s.path for s in hits[name]} - {p}
-        if all(map(is_test, others)):
-            found[p] = sorted(others)
+        tests = only_tests({s.path for s in hits[name]} - {p})
+        if tests is not None:
+            found[p] = tests
     return found
+
+
+def orphan_symbol(c: SymbolChange, u: Uses | None, first_line: str) -> str | None:
+    """Why a new symbol looks unused, or None. Only tests using it counts unless it's decorated (a
+    route or hook is used through its decorator). Nothing using it counts only for a plain
+    function or class: methods can be overrides, exported names can be API. The caller has
+    already left out test files and entry points."""
+    head = first_line.lstrip()
+    if c.status != "added" or u is None or u.only_tests is None or head.startswith("@"):
+        return None
+    if not u.only_tests and (c.sym.kind == "method" or head.startswith("export")):
+        return None
+    return unused(u.only_tests, "use")

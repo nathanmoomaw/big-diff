@@ -3,7 +3,7 @@
 ## Active
 
 - [ ] jCodeMunch-backed uses (`find_references` / `find_importers`) instead of `git grep`, when the repo is indexed; keep grep as the fallback
-- [ ] Orphan symbols: a new function in an existing file that only tests call (model a module as a synthetic symbol so `uses_many` + `_rank` cover both)
+- [ ] `Symbol.decorated` / `Symbol.exported` set by the parsers (ast `decorator_list`, tree-sitter `export_statement`) instead of reading the symbol's first line
 - [ ] Bench: more cases from flyerz/ribbon/NOW history (6 is a direction, not a benchmark); Opus at high effort
 - [ ] Code review on the site: a public GitHub compare URL → packet (needs a server or Lambda: git + tree-sitter don't run in Pyodide)
 - [ ] Viewer v1: packet view in site/ (symbol tree, callers panel, image diffs inline); v0 is `--format html`
@@ -15,6 +15,7 @@
 
 ## Completed
 
+- [x] Orphan symbols (2026-10-29): a new function only tests call, or a plain one nothing uses; entry points (scripts, handlers, route/function folders) exempt. 3 real hits, no false alarms, in ~280 commits across 9 repos
 - [x] Orphan check (2026-10-28): a new module nothing outside tests mentions gets a ranked item
 - [x] CI (2026-10-28): pytest + site browser smoke on PRs and main; deploy ships the tested dist/
 - [x] Site live (2026-10-28): https://big-diff.obfusco.us via `scripts/setup-site-aws.sh` (private S3 + CloudFront OAC, wildcard cert, Route 53, deploy-only IAM user `big-diff-deploy`)
