@@ -74,7 +74,7 @@ def test_parse_unified_rename_and_hunk_lines():
 def test_repo_without_commits(repo):
     repo.write("a.py", "def first():\n    return 1\n")
     p = packet.build(repo.root)
-    assert [i.title for i in p.items] == ["function `first` added"]
+    assert [i.title for i in p.items] == ["function `first` added: nothing uses it"]
 
 
 def test_removed_symbol_keeps_callers_at_same_lines(repo):
@@ -122,6 +122,8 @@ def test_new_module_only_tests_import_is_an_orphan(repo):
     repo.write("cli2.py", "def go():\n    pass\n\n\nif __name__ == \"__main__\":\n    go()\n")
     repo.write("pkg/quoted.py", "# run me: python -m pkg.quoted  (no __main__ guard here)\nX = 1\n")
     repo.write("web/widget/index.js", "export const w = 1\n")
+    repo.write("lambda/preset-store/index.mjs", "export const handler = async () => ({})\n")
+    repo.write("svc/worker_fn.py", "def lambda_handler(event, context):\n    return {}\n")
     repo.write("web/main.js", "import { w } from './widget/index.js'\n")
     p = packet.build(repo.root)
     orphans = {i.path: i.title for i in p.items if "orphan" in i.tags}
@@ -131,4 +133,24 @@ def test_new_module_only_tests_import_is_an_orphan(repo):
         "pkg/quoted.py": "new module nothing imports: nothing else in the repo mentions it",
     }
     assert "```" not in next(i for i in p.items if i.path == "pkg/lonely.py" and "orphan" in i.tags).render()
+    assert all(i.priority == packet.Prio.MODIFIED for i in p.items if "orphan" in i.tags)
+
+
+def test_new_function_only_tests_call_is_an_orphan(repo):
+    repo.write("lib.py", "def old():\n    return 0\n")
+    repo.write("app.py", "from lib import old\nprint(old())\n")
+    repo.commit()
+    repo.write("lib.py", (
+        "import functools\n\n\ndef old():\n    return 0\n\n\ndef helper_for_tests():\n    return 1\n\n\n"
+        "def forgotten():\n    return 2\n\n\n@functools.cache\ndef cached_thing():\n    return 3\n\n\n"
+        "class Box:\n    def fresh_method(self):\n        return 4\n"
+    ))
+    repo.write("app.py", "from lib import old, Box\nprint(old(), Box())\n")
+    repo.write("tests/test_lib.py", "from lib import helper_for_tests, cached_thing\n")
+    p = packet.build(repo.root)
+    titles = {i.title for i in p.items if "orphan" in i.tags}
+    assert titles == {
+        "function `helper_for_tests` added: only tests use it (tests/test_lib.py)",
+        "function `forgotten` added: nothing uses it",
+    }
     assert all(i.priority == packet.Prio.MODIFIED for i in p.items if "orphan" in i.tags)

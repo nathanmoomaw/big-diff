@@ -84,6 +84,9 @@ def uses_many(
 
 
 MAIN_GUARD = re.compile(r"""^if\s+__name__\s*==\s*['"]__main__['"]""", re.M)
+# Run by a platform, not imported: serverless handlers, file-based routes, scripts, migrations.
+ENTRY_DIRS = {"lambda", "lambdas", "functions", "netlify", "api", "pages", "routes", "bin", "scripts", "migrations"}
+HANDLER = re.compile(r"^(export\s+(async\s+)?(const|function)\s+handler\b|exports\.handler\b|def\s+(lambda_)?handler\()", re.M)
 
 
 def is_test(path: str) -> bool:
@@ -103,13 +106,22 @@ def module_name(path: str) -> str:
     return p.parent.name if stem in ("index", "__init__") and p.parent.name else stem
 
 
+def is_entry(path: str, src: str) -> bool:
+    """Code something outside the repo runs: a script, a serverless handler, a file-based route."""
+    return (
+        src.startswith("#!")
+        or bool(MAIN_GUARD.search(src) or HANDLER.search(src))
+        or any(part in ENTRY_DIRS for part in Path(path).parts[:-1])
+    )
+
+
 def modules(paths: list[str], sources: dict[str, str]) -> dict[str, str]:
-    """New source files worth an orphan check → their module names. Scripts (a shebang or a
-    `__main__` guard) are entry points, tests are tests, and generic names can't be searched."""
+    """New source files worth an orphan check → their module names. Entry points, tests and
+    generic names (which can't be searched) are left out."""
     out = {}
     for p in paths:
-        src, name = sources.get(p, ""), module_name(p)
-        if not (is_test(p) or src.startswith("#!") or MAIN_GUARD.search(src) or not searchable(name)):
+        name = module_name(p)
+        if not (is_test(p) or is_entry(p, sources.get(p, "")) or not searchable(name)):
             out[p] = name
     return out
 
@@ -124,3 +136,20 @@ def orphans(mods: dict[str, str], hits: dict[str, list[Site]]) -> dict[str, list
         if all(map(is_test, others)):
             found[p] = sorted(others)
     return found
+
+
+def orphan_symbol(c: SymbolChange, hits: dict[str, list[Site]], first_line: str) -> str | None:
+    """Why a new symbol looks unused, or None. Only tests using it counts unless it's decorated (a
+    route or hook is used through its decorator). Nothing using it counts only for a plain
+    function or class: methods can be overrides, exported names can be API, decorated ones hooks."""
+    if c.status != "added" or is_test(c.path) or not searchable(c.sym.name):
+        return None
+    if first_line.lstrip().startswith("@"):
+        return None
+    own = c.new
+    others = {s.path for s in hits[c.sym.name] if not (s.path == c.path and own and own.start <= s.line <= own.end)}
+    if others:
+        return f"only tests use it ({', '.join(sorted(others))})" if all(map(is_test, others)) else None
+    if c.sym.kind == "method" or first_line.lstrip().startswith("export"):
+        return None
+    return "nothing uses it"
