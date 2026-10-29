@@ -1,0 +1,2 @@
+:root{--bg:#fbfaf7;--fg:#1d1d1b;--mute:#6b6a64;--line:#e4e2dc;--add:#e5f4e4;--del:#fbebeb;--hunk:#e7f1fb;--tag:#efedff}
+@media (prefers-color-scheme:dark){:root{--bg:#161614;--fg:#ecebe6;--mute:#9a988f;--line:#2e2d29;--add:#1d3320;--del:#3a1f1f;--hunk:#1c2a3a;--tag:#2a2640}}

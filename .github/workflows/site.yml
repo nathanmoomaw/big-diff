@@ -1,0 +1,71 @@
+name: Site
+
+# Static site (site/) → https://big-diff.obfusco.us (S3 + CloudFront, like the obfusco.us apps).
+# Repo vars SITE_BUCKET / SITE_DISTRIBUTION and the deploy user's AWS secrets come from
+# scripts/setup-site-aws.sh; without SITE_BUCKET the deploy is skipped. Pushes to main and PRs
+# run pytest (the site runs that Python) and the browser smoke test; main then deploys the
+# exact dist/ the smoke test passed on.
+on:
+  push:
+    branches: [main]
+    paths: ['site/**', 'bigdiff/**', 'tests/**', 'pyproject.toml', 'uv.lock', '.github/workflows/site.yml']
+  pull_request:
+    paths: ['site/**', 'bigdiff/**', 'tests/**', 'pyproject.toml', 'uv.lock', '.github/workflows/site.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --frozen pytest -q
+
+  smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: site/dist
+
+  deploy:
+    needs: [pytest, smoke]
+    if: github.ref == 'refs/heads/main' && vars.SITE_BUCKET != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - run: aws s3 sync dist/ "s3://${{ vars.SITE_BUCKET }}/" --delete
+      - run: aws cloudfront create-invalidation --distribution-id "${{ vars.SITE_DISTRIBUTION }}" --paths "/*"
+
+      - name: Check the live site
+        run: |
+          sleep 5
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ vars.SITE_BUCKET }}/" || true)  # a brand-new name may not resolve yet
+          [ "$STATUS" = "200" ] && echo "OK" || echo "::warning::site returned HTTP $STATUS"

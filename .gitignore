@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+.hypothesis/
+DUMP.md
+.claude/worktrees/
+DIGEST.md
+DETAILED_DIGEST.md
+bench/pr_gate_results.json
+bench/pr_gate_results_clean.json
+
+# Local-only project notes
+CLAUDE.md
+DEVLOG.md
+MYTHOS.md
+ETHOS.md

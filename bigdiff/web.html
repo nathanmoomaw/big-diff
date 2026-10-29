@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>big diff</title>
+<style>
+/*CSS*/
+</style>
+</head>
+<body>
+<h1>big diff</h1>
+<p class="sub">Text, JSON / CSV values, images, or two git refs. Runs locally; nothing leaves this machine.</p>
+<nav role="tablist">
+  <button role="tab" data-tab="text" aria-selected="true">Text &amp; data</button>
+  <button role="tab" data-tab="image" aria-selected="false">Images</button>
+  <button role="tab" data-tab="repo" aria-selected="false">Git repo</button>
+</nav>
+
+<section id="text">
+  <div class="pair">
+    <div><label for="ta">Before (paste, or drop a file)</label><textarea id="ta" spellcheck="false"></textarea></div>
+    <div><label for="tb">After</label><textarea id="tb" spellcheck="false"></textarea></div>
+  </div>
+  <div class="opts">
+    <div><label for="kind">Compare as</label>
+      <select id="kind"><option value="auto">auto</option><option value="text">lines</option><option value="json">JSON values</option><option value="csv">CSV rows</option></select></div>
+    <div><label for="key">Match rows by field</label><input id="key" placeholder="e.g. id"></div>
+    <div><label for="tol">Number tolerance</label><input id="tol" type="number" step="any" value="0"></div>
+    <button class="go" id="tgo">Diff</button>
+  </div>
+  <div class="status" id="tstat"></div>
+  <div id="tout"></div>
+</section>
+
+<section id="image" hidden>
+  <div class="pair">
+    <div><label for="ia">Before image</label><input id="ia" type="file" accept="image/*"></div>
+    <div><label for="ib">After image</label><input id="ib" type="file" accept="image/*"></div>
+  </div>
+  <div class="opts">
+    <div><label for="thr">Threshold (0–255)</label><input id="thr" type="number" min="0" max="255" value="16"></div>
+    <button class="go" id="igo">Diff</button>
+  </div>
+  <div class="status" id="istat"></div>
+  <div class="imgs" id="iout" hidden>
+    <figure><img id="pa" alt="before"><figcaption>Before</figcaption></figure>
+    <figure><img id="pb" alt="after"><figcaption>After</figcaption></figure>
+    <figure><img id="ph" alt="changed pixels in red"><figcaption>Changed pixels (red)</figcaption></figure>
+  </div>
+</section>
+
+<section id="repo" hidden>
+  <div class="opts">
+    <div style="flex:2"><label for="rp">Repo path</label><input id="rp" value="."></div>
+    <div><label for="rbase">Base</label><input id="rbase" value="HEAD"></div>
+    <div><label for="rhead">Head (empty = working tree)</label><input id="rhead"></div>
+    <button class="go" id="rgo">Open review packet</button>
+  </div>
+  <p class="status">Ranks changed functions and classes by risk and lists where each is used. Opens in a new tab.</p>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const KEY = "bigdiff:tab";
+
+function show(tab) {
+  document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
+  for (const s of ["text", "image", "repo"]) $(s).hidden = s !== tab;
+  try { localStorage.setItem(KEY, tab); } catch {}
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
+try { const t = localStorage.getItem(KEY); if (t && $(t)) show(t); } catch {}
+
+async function post(url, body) {
+  const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+for (const id of ["ta", "tb"]) {
+  const t = $(id);
+  t.ondragover = e => { e.preventDefault(); t.classList.add("over"); };
+  t.ondragleave = () => t.classList.remove("over");
+  t.oninput = () => delete t.dataset.name;  // typed or pasted text isn't the dropped file any more
+  t.ondrop = async e => {
+    e.preventDefault(); t.classList.remove("over");
+    const f = e.dataTransfer.files[0]; if (!f) return;
+    t.value = await f.text();
+    t.dataset.name = f.name;  // the server picks JSON/CSV from it (data.kind_of)
+  };
+}
+
+function renderText(r) {
+  $("tstat").textContent = r.summary;
+  if (r.kind !== "text") {
+    $("tout").innerHTML = r.ops.length ? `<div class="wrap"><ul class="ops">${r.ops.map(o => `<li class="${o.op}">${esc(o.text)}</li>`).join("")}</ul></div>` : "";
+    return;
+  }
+  $("tout").innerHTML = r.rows.length ? `<div class="wrap"><table class="sbs">${r.rows.map(x => x.t === "gap"
+    ? `<tr class="gap"><td colspan="4">${x.n} unchanged line(s)</td></tr>`
+    : `<tr class="${x.t}"><td class="n">${x.an ?? ""}</td><td class="a">${esc(x.a)}</td><td class="n">${x.bn ?? ""}</td><td class="b">${esc(x.b)}</td></tr>`).join("")}</table></div>` : "";
+}
+
+function status(id, msg, err = false) { $(id).textContent = msg; $(id).classList.toggle("err", err); }
+
+$("tgo").onclick = async () => {
+  status("tstat", "…");
+  const names = [$("ta").dataset.name, $("tb").dataset.name].filter(Boolean);
+  try {
+    renderText(await post("/api/text", {a: $("ta").value, b: $("tb").value, kind: $("kind").value, key: $("key").value, tol: $("tol").value, names}));
+  } catch (e) { status("tstat", e.message, true); $("tout").innerHTML = ""; }
+};
+
+const asURL = f => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(f); });
+
+$("igo").onclick = async () => {
+  const fa = $("ia").files[0], fb = $("ib").files[0];
+  if (!fa || !fb) return status("istat", "Pick both images.");
+  status("istat", "…");
+  try {
+    const [a, b] = await Promise.all([asURL(fa), asURL(fb)]);
+    const r = await post("/api/image", {a, b, threshold: $("thr").value});
+    $("pa").src = a; $("pb").src = b; $("ph").src = r.heatmap;
+    status("istat", r.summary); $("iout").hidden = false;
+  } catch (e) { status("istat", e.message, true); $("iout").hidden = true; }
+};
+
+$("rgo").onclick = () => {
+  const q = new URLSearchParams({repo: $("rp").value, base: $("rbase").value});
+  if ($("rhead").value.trim()) q.set("head", $("rhead").value.trim());
+  window.open("/review?" + q, "_blank");
+};
+</script>
+</body>
+</html>
