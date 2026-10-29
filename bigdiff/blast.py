@@ -35,7 +35,8 @@ class Site:
 class Uses:
     name: str
     total: int
-    sites: list[Site]
+    sites: list[Site]  # the first MAX_SITES, other files first
+    only_tests: list[str] | None = None  # every use is in these test files ([] = no uses); None otherwise
 
 
 def searchable(name: str) -> bool:
@@ -79,7 +80,7 @@ def uses_many(
         sites = [s for s in hits[c.sym.name] if not (own and s.path == c.path and own.start <= s.line <= own.end)]
         # callers in other files first: those are the ones a file-local review can't see
         sites.sort(key=lambda s: (s.path == c.path, s.path, s.line))
-        result.append(Uses(c.sym.name, len(sites), sites[:max_sites]))
+        result.append(Uses(c.sym.name, len(sites), sites[:max_sites], only_tests({s.path for s in sites})))
     return result
 
 
@@ -98,6 +99,16 @@ def is_test(path: str) -> bool:
     )
 
 
+def only_tests(paths: set[str]) -> list[str] | None:
+    """The paths, sorted, if all of them are tests (none at all counts); else None."""
+    return sorted(paths) if all(map(is_test, paths)) else None
+
+
+def unused(tests: list[str], verb: str) -> str:
+    """How an orphan is described: who still uses it, if anyone."""
+    return f"only tests {verb} it ({', '.join(tests)})" if tests else f"nothing else {verb}s it"
+
+
 def module_name(path: str) -> str:
     """What other code calls a file when it imports it: its name up to the first dot
     (engine.worker.js → engine), or its folder for index/__init__."""
@@ -109,9 +120,10 @@ def module_name(path: str) -> str:
 def is_entry(path: str, src: str) -> bool:
     """Code something outside the repo runs: a script, a serverless handler, a file-based route."""
     return (
-        src.startswith("#!")
-        or bool(MAIN_GUARD.search(src) or HANDLER.search(src))
-        or any(part in ENTRY_DIRS for part in Path(path).parts[:-1])
+        any(part in ENTRY_DIRS for part in Path(path).parts[:-1])
+        or src.startswith("#!")
+        or MAIN_GUARD.search(src) is not None
+        or HANDLER.search(src) is not None
     )
 
 
@@ -132,24 +144,20 @@ def orphans(mods: dict[str, str], hits: dict[str, list[Site]]) -> dict[str, list
     one: this check should only speak up when it's sure."""
     found = {}
     for p, name in mods.items():
-        others = {s.path for s in hits[name]} - {p}
-        if all(map(is_test, others)):
-            found[p] = sorted(others)
+        tests = only_tests({s.path for s in hits[name]} - {p})
+        if tests is not None:
+            found[p] = tests
     return found
 
 
-def orphan_symbol(c: SymbolChange, hits: dict[str, list[Site]], first_line: str) -> str | None:
+def orphan_symbol(c: SymbolChange, u: Uses | None, first_line: str) -> str | None:
     """Why a new symbol looks unused, or None. Only tests using it counts unless it's decorated (a
     route or hook is used through its decorator). Nothing using it counts only for a plain
-    function or class: methods can be overrides, exported names can be API, decorated ones hooks."""
-    if c.status != "added" or is_test(c.path) or not searchable(c.sym.name):
+    function or class: methods can be overrides, exported names can be API. The caller has
+    already left out test files and entry points."""
+    head = first_line.lstrip()
+    if c.status != "added" or u is None or u.only_tests is None or head.startswith("@"):
         return None
-    if first_line.lstrip().startswith("@"):
+    if not u.only_tests and (c.sym.kind == "method" or head.startswith("export")):
         return None
-    own = c.new
-    others = {s.path for s in hits[c.sym.name] if not (s.path == c.path and own and own.start <= s.line <= own.end)}
-    if others:
-        return f"only tests use it ({', '.join(sorted(others))})" if all(map(is_test, others)) else None
-    if c.sym.kind == "method" or first_line.lstrip().startswith("export"):
-        return None
-    return "nothing uses it"
+    return unused(u.only_tests, "use")

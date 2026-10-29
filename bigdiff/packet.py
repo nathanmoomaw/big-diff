@@ -207,7 +207,9 @@ def _rank(
         return Prio.SIGNATURE_WITH_CALLERS, tags
     if other_files and c.status == "modified" or coupled:
         return Prio.USED_ELSEWHERE, tags
-    if c.status == "modified" or orphan:  # new code nothing but tests reaches is worth a look
+    if orphan:  # new code nothing but tests reaches is worth a look
+        return Prio.MODIFIED, tags
+    if c.status == "modified":
         return Prio.MODIFIED, tags
     return (Prio.MINOR if c.status == "removed" else Prio.ADDED), tags
 
@@ -262,14 +264,19 @@ def build(
     found = iter(blast.uses_many(repo, all_changes, head, hits=hits))
     orphan_mods = blast.orphans(mods, hits)  # a whole file: its own item, not one per symbol
     for path, tests in orphan_mods.items():
-        why = f"only tests mention it ({', '.join(tests)})" if tests else "nothing else in the repo mentions it"
-        items.append(Item(Prio.MODIFIED, path, f"new module nothing imports: {why}", "", tags=["orphan"]))
+        title = f"new module nothing imports: {blast.unused(tests, 'mention')}"
+        items.append(Item(Prio.MODIFIED, path, title, "", tags=["orphan"]))
     ev_index: events.Index | None = None  # built on first need: one grep for every event line
     for f, old_lines, new_lines, changes in parsed:
         covered_new: set[int] = set()
         covered_old: set[int] = set()
         olds, news = [c.old for c in changes if c.old], [c.new for c in changes if c.new]
-        check_unused = f.path not in orphan_mods and not blast.is_entry(f.path, sources.get(f.path, ""))
+        check_unused = (  # per file: tests and entry points don't need callers
+            any(c.status == "added" for c in changes)
+            and f.path not in orphan_mods
+            and not blast.is_test(f.path)
+            and not blast.is_entry(f.path, sources.get(f.path, ""))
+        )
         for c in changes:
             u = next(found)
             links = None
@@ -279,9 +286,7 @@ def build(
                     ev_index = events.index(repo, head)
                     ev_index.sources.update(sources)
                 links = ev_index.edges(f.path, names)
-            unused = None
-            if c.new and check_unused:
-                unused = blast.orphan_symbol(c, hits, new_lines[c.new.start - 1])
+            unused = blast.orphan_symbol(c, u, new_lines[c.new.start - 1]) if check_unused and c.new else None
             prio, tags = _rank(c, u, links, bool(unused))
             title = f"{c.sym.kind} `{c.sym.qualname}` {c.status}" + (f": {unused}" if unused else "")
             if c.signature_changed:

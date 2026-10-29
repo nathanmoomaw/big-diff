@@ -59,7 +59,7 @@ Used in 10 place(s):
 | 0 | symbol removed but still used somewhere |
 | 1 | signature changed and it has callers |
 | 2 | body changed and it's used in other files |
-| 3 | body changed; a new module nothing imports except tests; changed files that can't be parsed (shell, config) |
+| 3 | body changed; new code only tests use (a module, or a function nothing else calls); changed files that can't be parsed (shell, config) |
 | 4 | removed and unused; edits outside any symbol (imports, top level) |
 | 5 | new symbols; docs |
 | 6–7 | binary files, lockfiles (one line each) |

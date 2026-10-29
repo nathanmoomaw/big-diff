@@ -74,7 +74,7 @@ def test_parse_unified_rename_and_hunk_lines():
 def test_repo_without_commits(repo):
     repo.write("a.py", "def first():\n    return 1\n")
     p = packet.build(repo.root)
-    assert [i.title for i in p.items] == ["function `first` added: nothing uses it"]
+    assert [i.title for i in p.items] == ["function `first` added: nothing else uses it"]
 
 
 def test_removed_symbol_keeps_callers_at_same_lines(repo):
@@ -129,8 +129,8 @@ def test_new_module_only_tests_import_is_an_orphan(repo):
     orphans = {i.path: i.title for i in p.items if "orphan" in i.tags}
     assert orphans == {
         "pkg/helpers.py": "new module nothing imports: only tests mention it (tests/test_helpers.py)",
-        "pkg/lonely.py": "new module nothing imports: nothing else in the repo mentions it",
-        "pkg/quoted.py": "new module nothing imports: nothing else in the repo mentions it",
+        "pkg/lonely.py": "new module nothing imports: nothing else mentions it",
+        "pkg/quoted.py": "new module nothing imports: nothing else mentions it",
     }
     assert "```" not in next(i for i in p.items if i.path == "pkg/lonely.py" and "orphan" in i.tags).render()
     assert all(i.priority == packet.Prio.MODIFIED for i in p.items if "orphan" in i.tags)
@@ -151,6 +151,6 @@ def test_new_function_only_tests_call_is_an_orphan(repo):
     titles = {i.title for i in p.items if "orphan" in i.tags}
     assert titles == {
         "function `helper_for_tests` added: only tests use it (tests/test_lib.py)",
-        "function `forgotten` added: nothing uses it",
+        "function `forgotten` added: nothing else uses it",
     }
     assert all(i.priority == packet.Prio.MODIFIED for i in p.items if "orphan" in i.tags)
