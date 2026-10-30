@@ -4,6 +4,7 @@
 # and a deploy-only IAM user whose keys go into this repo's GitHub secrets. Then it runs the
 # first deploy. Safe to re-run: each step skips what already exists.
 set -euo pipefail
+export AWS_PAGER=""  # no `less` pauses between steps
 
 B=big-diff.obfusco.us
 ZONE=Z2YGI1EJ2R4PG0                  # obfusco.us
@@ -15,7 +16,7 @@ REPO=nathanmoomaw/big-diff
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
 echo "== bucket"
-if ! aws s3api head-bucket --bucket $B 2>/dev/null; then
+if ! aws s3api head-bucket --bucket $B >/dev/null 2>&1; then
   aws s3api create-bucket --bucket $B --region us-east-1 >/dev/null
 fi
 aws s3api put-public-access-block --bucket $B --public-access-block-configuration \
