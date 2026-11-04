@@ -131,6 +131,7 @@ def test_layout_only_change_is_reformatted():
     assert [c.status for c in asi] == ["modified"]  # ASI: returns undefined now
     holes = compare("a.js", "function f() {\n  return [a,]\n}\n", "function f() {\n  return [a,,]\n}\n")
     assert [c.status for c in holes] == ["modified"]  # one more element
+    assert compare("a.js", "const f = () => 1\n", "let f = () => 1\n")[0].status == "modified"
 
 
 def test_rename_with_same_code_pairs_up():
@@ -149,12 +150,12 @@ def test_decorated_and_exported_flags():
     src = (
         "@Comp() export class A { @Input() m(x) { return 1 } n() {} }\n"
         "export default function f() {}\nexport const g = () => 1\n"
-        "function h() {}\nconst k = () => 2\nexport { h as hh }\nfunction d() {}\nexport default d\n"
+        "function h() {}\nconst k = () => 2\nexport { h as hh }\nfunction d() {}\nexport default d\nfunction r() {}\nexport { r } from './x'\n"
     )
     s = {x.qualname: (x.decorated, x.exported) for x in symbols("a.ts", src)}
     assert s == {
         "A": (True, True), "A.m": (True, False), "A.n": (False, False),
-        "f": (False, True), "g": (False, True), "h": (False, True), "k": (False, False), "d": (False, True),
+        "f": (False, True), "g": (False, True), "h": (False, True), "k": (False, False), "d": (False, True), "r": (False, False),
     }  # fmt: skip
     py = {x.qualname: x.decorated for x in symbols("a.py", PY)}
     assert py["Box.area"] and not py["Box.size"]

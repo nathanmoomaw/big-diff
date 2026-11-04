@@ -178,10 +178,10 @@ def _ts_symbols(lang: str, source: str, lines: list[str]) -> list[Symbol]:
     def text(n) -> str:
         return src[n.start_byte : n.end_byte].decode("utf-8", "replace")
 
-    def shapes(n, name) -> tuple[str, str]:
+    def shapes(n, name, keyword: str = "") -> tuple[str, str]:
         """(shape, renamed shape) from n's tree: its node types and tokens, with comments, `;`, trailing
         commas and quote style left out. The node types keep ASI honest: `return\\nx` isn't `return x`."""
-        toks: list[str] = []
+        toks: list[str] = [keyword]  # const / let / var for `const f = …`: reassigning and hoisting differ
         named_at = -1
 
         def leaves(x) -> None:
@@ -220,6 +220,7 @@ def _ts_symbols(lang: str, source: str, lines: list[str]) -> list[Symbol]:
     exports = {  # export { name, other as alias }; export default name
         text(spec.child_by_field_name("name"))
         for clause in _all(tree.root_node, "export_clause")
+        if clause.parent is None or clause.parent.child_by_field_name("source") is None  # not `… from './x'`
         for spec in clause.named_children
         if spec.type == "export_specifier" and spec.child_by_field_name("name") is not None
     } | {
@@ -257,7 +258,7 @@ def _ts_symbols(lang: str, source: str, lines: list[str]) -> list[Symbol]:
                     decl = child.parent if child.parent is not None else child  # include `const`
                     q = f"{prefix}{text(name_node)}"
                     sig = f"{text(name_node)} = {header(value)}"
-                    shape, renamed = shapes(child, name_node)
+                    shape, renamed = shapes(child, name_node, text(decl.children[0]))
                     out.append(
                         _make(
                             q, "function", decl.start_point[0] + 1, child.end_point[0] + 1, lines, sig,
