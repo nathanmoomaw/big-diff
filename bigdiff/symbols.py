@@ -178,7 +178,8 @@ def _ts_symbols(lang: str, source: str, lines: list[str]) -> list[Symbol]:
         return src[n.start_byte : n.end_byte].decode("utf-8", "replace")
 
     def shapes(n, name) -> tuple[str, str]:
-        """(shape, renamed shape) from n's tokens: comments, `;`, trailing commas and quote style left out."""
+        """(shape, renamed shape) from n's tree: its node types and tokens, with comments, `;`, trailing
+        commas and quote style left out. The node types keep ASI honest: `return\\nx` isn't `return x`."""
         toks: list[str] = []
         named_at = -1
 
@@ -191,8 +192,10 @@ def _ts_symbols(lang: str, source: str, lines: list[str]) -> list[Symbol]:
                     named_at = len(toks)
                 toks.append('"' if x.type in ("'", '"') else text(x))
                 return
+            toks.append("\x01" + x.type)  # \x01/\x02 can't collide with a token's text
             for y in x.children:
                 leaves(y)
+            toks.append("\x02")
 
         leaves(n)
         keep = [
@@ -213,11 +216,17 @@ def _ts_symbols(lang: str, source: str, lines: list[str]) -> list[Symbol]:
         )
         return {"decorated": decorated, "exported": export is not None or name in exports}
 
-    exports = {  # export { name, other as alias }
+    exports = {  # export { name, other as alias }; export default name
         text(spec.child_by_field_name("name"))
         for clause in _all(tree.root_node, "export_clause")
         for spec in clause.named_children
         if spec.type == "export_specifier" and spec.child_by_field_name("name") is not None
+    } | {
+        text(c)
+        for st in tree.root_node.children
+        if st.type == "export_statement"
+        for c in st.named_children
+        if c.type == "identifier"
     }
 
     def header(n) -> str:

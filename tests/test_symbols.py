@@ -127,6 +127,8 @@ def test_layout_only_change_is_reformatted():
     assert c.status == "reformatted" and not c.signature_changed and c.cosmetic
     assert compare("a.js", js_old, js_old.replace("url, {", "url2, {"))[0].status == "modified"
     assert compare("a.js", js_old, "export " + js_old)[0].status == "modified"  # new API, same body
+    asi = compare("a.js", "function f(x) {\n  return x\n}\n", "function f(x) {\n  return\n  x\n}\n")
+    assert [c.status for c in asi] == ["modified"]  # ASI: returns undefined now
 
 
 def test_rename_with_same_code_pairs_up():
@@ -145,12 +147,12 @@ def test_decorated_and_exported_flags():
     src = (
         "@Comp() export class A { @Input() m(x) { return 1 } n() {} }\n"
         "export default function f() {}\nexport const g = () => 1\n"
-        "function h() {}\nconst k = () => 2\nexport { h as hh }\n"
+        "function h() {}\nconst k = () => 2\nexport { h as hh }\nfunction d() {}\nexport default d\n"
     )
     s = {x.qualname: (x.decorated, x.exported) for x in symbols("a.ts", src)}
     assert s == {
         "A": (True, True), "A.m": (True, False), "A.n": (False, False),
-        "f": (False, True), "g": (False, True), "h": (False, True), "k": (False, False),
+        "f": (False, True), "g": (False, True), "h": (False, True), "k": (False, False), "d": (False, True),
     }  # fmt: skip
     py = {x.qualname: x.decorated for x in symbols("a.py", PY)}
     assert py["Box.area"] and not py["Box.size"]
