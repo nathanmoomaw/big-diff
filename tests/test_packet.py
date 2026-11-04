@@ -154,3 +154,35 @@ def test_new_function_only_tests_call_is_an_orphan(repo):
         "function `forgotten` added: nothing else uses it",
     }
     assert all(i.priority == packet.Prio.MODIFIED for i in p.items if "orphan" in i.tags)
+
+
+def test_rename_still_called_by_old_name_is_priority_zero(repo):
+    _setup(repo)
+    repo.write("lib.py", LIB.replace("def total(", "def grand_total("))
+    p = packet.build(repo.root)
+    first = p.items[0]
+    assert first.priority == packet.Prio.STILL_REFERENCED and "renamed" in first.tags
+    assert first.title == "function `total` renamed to `grand_total`, code unchanged"
+    assert "still referenced" in first.tags
+    assert first.body == "" and any(s.path == "app.py" for s in first.uses.sites)
+    repo.write("app.py", APP.replace("total", "grand_total"))
+    (item,) = [i for i in packet.build(repo.root).items if i.path == "lib.py"]
+    assert item.priority == packet.Prio.MINOR and "still referenced" not in item.tags
+    assert "No uses of `total` found" in item.render()
+
+
+def test_reformatted_symbol_is_one_line(repo):
+    _setup(repo)
+    repo.write("lib.py", LIB.replace("return sum(items)", "# add them up\n    return sum(\n        items,\n    )"))
+    (item,) = packet.build(repo.root).items
+    assert item.title == "function `total` reformatted (layout only, same code)"
+    assert item.priority == packet.Prio.MINOR and item.body == "" and item.uses is None
+
+
+def test_exported_js_function_nothing_uses_is_not_an_orphan(repo):
+    repo.write("lib.js", "export function keep() { return 0 }\n")
+    repo.commit()
+    repo.write("lib.js", "export function keep() { return 0 }\nfunction api() { return 1 }\nexport { api }\n"
+               "function lonely() { return 2 }\n")
+    titles = {i.title for i in packet.build(repo.root).items if "orphan" in i.tags}
+    assert titles == {"function `lonely` added: nothing else uses it"}

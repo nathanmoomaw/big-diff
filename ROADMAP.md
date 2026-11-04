@@ -3,17 +3,21 @@
 ## Active
 
 - [ ] jCodeMunch-backed uses (`find_references` / `find_importers`) instead of `git grep`, when the repo is indexed; keep grep as the fallback
-- [ ] `Symbol.decorated` / `Symbol.exported` set by the parsers (ast `decorator_list`, tree-sitter `export_statement`) instead of reading the symbol's first line
 - [ ] Bench: more cases from flyerz/ribbon/NOW history (6 is a direction, not a benchmark); Opus at high effort
 - [ ] Code review on the site: a public GitHub compare URL → packet (needs a server or Lambda: git + tree-sitter don't run in Pyodide)
 - [ ] Viewer v1: packet view in site/ (symbol tree, callers panel, image diffs inline); v0 is `--format html`
 - [ ] File identity from `git diff --raw -z -M` (exact paths, no `+++`/rename text parsing), patch text only for hunks
 - [ ] Read file versions through one `git cat-file --batch` process instead of a `git show` per file; precompute symbol nesting once per file for `_own_hash`
-- [ ] Semantic no-op detection: formatting-only and rename-only changes collapse to one line
+- [ ] Signature-break callers: when a function's parameters change, flag the call sites whose argument count (or keyword names) no longer fits
+- [ ] `untested` tag: a changed symbol no test file mentions (same `word_hits` grep)
+- [ ] GitHub Action: run `bigdiff check` on a PR and post the packet / findings as a comment
+- [ ] No-op detection, more cases: arrow-param parens (`t =>` vs `(t) =>`), a rename that also edits the body (pair by similarity), whole-file moves
 - [ ] More data formats: YAML, TOML, SQLite schema diff, Parquet
 - [ ] More languages via tree-sitter: Go, Rust, Swift, CSS (selectors), HTML (ids/components)
 
 ## Completed
+
+- [x] No-op detection (2026-11-04): a symbol whose code is the same apart from layout, comments, quotes, `;` and trailing commas is `reformatted` (one line); a removed + added pair with the same code is `renamed`, ranked first if the old name is still used. `Symbol.decorated` / `exported` come from the parsers, so the orphan check no longer reads the first line
 
 - [x] Orphan symbols (2026-10-29): a new function only tests call, or a plain one nothing uses; entry points (scripts, handlers, route/function folders) exempt. 3 real hits, no false alarms, in ~280 commits across 9 repos
 - [x] Orphan check (2026-10-28): a new module nothing outside tests mentions gets a ranked item

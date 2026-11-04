@@ -81,7 +81,7 @@ def review(files: dict[str, str], context: str = "", model: str = "haiku", effor
     messages = [{"role": "user", "content": text}]
     kwargs = {
         "model": m.id,
-        "max_tokens": 16000,
+        "max_tokens": 64000,  # thinking shares this; streamed, so a long answer can't time out
         "system": SYSTEM,
         "messages": messages,
         "output_config": {"effort": effort},
@@ -94,11 +94,13 @@ def review(files: dict[str, str], context: str = "", model: str = "haiku", effor
             if n > m.max_input:
                 raise RuntimeError(f"{n:,} input tokens is over {m.max_input:,} for {model}: review fewer files")
         if m.server_fallback:  # route around a safety-classifier refusal instead of failing the review
-            r = client.beta.messages.parse(
+            stream = client.beta.messages.stream(
                 **kwargs, output_format=Findings, betas=["server-side-fallback-2026-07-01"], fallbacks="default"
             )
         else:
-            r = client.messages.parse(**kwargs, output_format=Findings)
+            stream = client.messages.stream(**kwargs, output_format=Findings)
+        with stream as s:
+            r = s.get_final_message()
     except anthropic.APIError as e:
         raise RuntimeError(f"API error: {e}") from e
     except TypeError as e:

@@ -30,7 +30,7 @@ class Prio(IntEnum):
     SIGNATURE_WITH_CALLERS = 1
     USED_ELSEWHERE = 2  # body changed, used in other files
     MODIFIED = 3  # body changed; new modules nothing imports; edits in source/config files without symbols
-    MINOR = 4  # removed and unreferenced; edits outside symbols in parsed files
+    MINOR = 4  # removed and unreferenced; reformatted or renamed (nothing calls the old name); edits outside symbols
     ADDED = 5  # new symbols; docs
     BINARY = 6
     LOCKFILE = 7
@@ -74,7 +74,7 @@ class Item:
             parts.append(f"Used in {self.uses.total} place(s){more}:")
             parts += [f"- `{s.path}:{s.line}` {s.text}" for s in self.uses.sites]
         elif self.uses is not None:
-            parts.append("No uses found outside its definition.")
+            parts.append(f"No uses of `{self.uses.name}` found outside its definition.")
         if self.events:
             ev = self.events
             more = f" (showing {len(ev.edges)})" if ev.total > len(ev.edges) else ""
@@ -194,6 +194,7 @@ def _rank(
         t
         for t, on in (
             ("removed", c.status == "removed"),
+            ("renamed", c.status == "renamed"),
             ("signature changed", c.signature_changed),
             ("used in other files", other_files),
             ("event-coupled", coupled),
@@ -201,7 +202,7 @@ def _rank(
         )
         if on
     ]
-    if c.status == "removed" and callers:
+    if c.name_gone and callers:
         return Prio.STILL_REFERENCED, tags + ["still referenced"]
     if c.signature_changed and callers:
         return Prio.SIGNATURE_WITH_CALLERS, tags
@@ -211,7 +212,7 @@ def _rank(
         return Prio.MODIFIED, tags
     if c.status == "modified":
         return Prio.MODIFIED, tags
-    return (Prio.MINOR if c.status == "removed" else Prio.ADDED), tags
+    return (Prio.MINOR if c.name_gone or c.cosmetic else Prio.ADDED), tags
 
 
 def _fit(items: list[Item], budget: int) -> tuple[list[Item], list[str]]:
@@ -280,18 +281,27 @@ def build(
         for c in changes:
             u = next(found)
             links = None
-            names = events.events_in(_own_text(old_lines, c.old, olds) + "\n" + _own_text(new_lines, c.new, news))
+            names = (
+                set()
+                if c.cosmetic  # same code: no new event behaviour
+                else events.events_in(_own_text(old_lines, c.old, olds) + "\n" + _own_text(new_lines, c.new, news))
+            )
             if names:
                 if ev_index is None:
                     ev_index = events.index(repo, head)
                     ev_index.sources.update(sources)
                 links = ev_index.edges(f.path, names)
-            unused = blast.orphan_symbol(c, u, new_lines[c.new.start - 1]) if check_unused and c.new else None
+            unused = blast.orphan_symbol(c, u) if check_unused else None
             prio, tags = _rank(c, u, links, bool(unused))
             title = f"{c.sym.kind} `{c.sym.qualname}` {c.status}" + (f": {unused}" if unused else "")
             if c.signature_changed:
                 title += f": `{c.old.signature}` → `{c.new.signature}`"  # type: ignore[union-attr]
-            body = "\n".join(h.text() for h in _symbol_hunks(old_lines, new_lines, c))
+            elif c.status == "renamed":
+                old = c.old.qualname  # type: ignore[union-attr]
+                title = f"{c.sym.kind} `{old}` renamed to `{c.sym.name}`, code unchanged"
+            elif c.status == "reformatted":
+                title += " (layout only, same code)"
+            body = "" if c.cosmetic else "\n".join(h.text() for h in _symbol_hunks(old_lines, new_lines, c))
             items.append(Item(prio, f.path, title, body, u, tags, links))
             if c.new:
                 covered_new |= set(range(c.new.start, c.new.end + 1))
