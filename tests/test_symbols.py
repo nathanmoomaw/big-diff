@@ -129,6 +129,8 @@ def test_layout_only_change_is_reformatted():
     assert compare("a.js", js_old, "export " + js_old)[0].status == "modified"  # new API, same body
     asi = compare("a.js", "function f(x) {\n  return x\n}\n", "function f(x) {\n  return\n  x\n}\n")
     assert [c.status for c in asi] == ["modified"]  # ASI: returns undefined now
+    holes = compare("a.js", "function f() {\n  return [a,]\n}\n", "function f() {\n  return [a,,]\n}\n")
+    assert [c.status for c in holes] == ["modified"]  # one more element
 
 
 def test_rename_with_same_code_pairs_up():

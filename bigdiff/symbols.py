@@ -141,7 +141,8 @@ _TS_DECL = {
     "interface_declaration": "class",
 }
 _TS_FN_VALUES = {"arrow_function", "function_expression", "function", "generator_function"}
-_CLOSERS = {")", "]", "}"}
+_CLOSERS = ([")"], ["]"], ["}"])
+_HOLES = {",", "[", "(", "{"}  # a comma after these is an array hole (`[,]`, `[a,,]`), not a trailing comma
 
 
 # Calls that wrap a function and return it (or a component built from it). Not map/useState/useMemo:
@@ -201,7 +202,7 @@ def _ts_symbols(lang: str, source: str, lines: list[str]) -> list[Symbol]:
         keep = [
             i
             for i, t in enumerate(toks)
-            if t != ";" and not (t == "," and i + 1 < len(toks) and toks[i + 1] in _CLOSERS)
+            if t != ";" and not (t == "," and toks[i + 1 : i + 2] in _CLOSERS and toks[i - 1] not in _HOLES)
         ]
         shape = "\x00".join(toks[i] for i in keep)
         return _digest(shape), _digest("\x00".join("" if i == named_at else toks[i] for i in keep))
