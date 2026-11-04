@@ -99,7 +99,7 @@ def symbols(path: str, source: str) -> list[Symbol]:
     lines = source.splitlines()
     try:
         return _py_symbols(source, lines) if lang == "python" else _ts_symbols(lang, source, lines)
-    except (SyntaxError, ValueError):  # ValueError: NUL bytes
+    except (SyntaxError, ValueError, RecursionError):  # ValueError: NUL bytes; RecursionError: deep nesting
         return []  # half-written file: fall back to plain hunks
 
 
@@ -328,7 +328,8 @@ def compare(path: str, old_src: str | None, new_src: str | None) -> list[SymbolC
 
 def _pair_renames(changes: list[SymbolChange]) -> list[SymbolChange]:
     """A removed and an added symbol with the same code under one parent, each the only one of its
-    kind, are one rename. A rename that also edits the body stays removed + added."""
+    kind, are one rename. A rename that also edits the body stays removed + added. What's nested in
+    a renamed symbol is unchanged too (its shape covers them), so it isn't reported."""
 
     def key(s: Symbol) -> tuple:
         return (s.qualname.rpartition(".")[0], s.kind, s.exported, s.renamed_shape)
@@ -340,10 +341,13 @@ def _pair_renames(changes: list[SymbolChange]) -> list[SymbolChange]:
             (gone if c.status == "removed" else born).setdefault(key(c.sym), []).append(c)
     pairs = {id(g[0]): b[0] for k, g in gone.items() if len(g) == 1 and len(b := born.get(k, [])) == 1}
     paired = {id(b) for b in pairs.values()}
+    inside = tuple(
+        f"{x.sym.qualname}." for c in changes if id(c) in pairs for x in (c, pairs[id(c)])
+    )  # Old.method removed and New.method added under a renamed class
     out = []
     for c in changes:
         if id(c) in pairs:
             out.append(SymbolChange(c.path, "renamed", c.old, pairs[id(c)].new))
-        elif id(c) not in paired:
+        elif id(c) not in paired and not (inside and c.sym.qualname.startswith(inside)):
             out.append(c)
     return out

@@ -139,6 +139,8 @@ def test_rename_with_same_code_pairs_up():
     assert (c.status, c.old.name, c.new.name, c.lookup_name) == ("renamed", "old", "new", "old")
     (c,) = compare("a.ts", "class K { a() { return 1 } }\n", "class K { b() { return 1 } }\n")
     assert c.status == "renamed" and c.new.qualname == "K.b"
+    cls = compare("a.py", PY, PY.replace("class Box:", "class Crate:"))
+    assert [(c.status, c.old.qualname, c.new.qualname) for c in cls] == [("renamed", "Box", "Crate")]
     # body edited too, or two candidates: no guess
     edited = compare("a.py", "def old(x):\n    return x\n", "def new(x):\n    return x + 1\n")
     assert {c.status for c in edited} == {"added", "removed"}
