@@ -132,6 +132,7 @@ def test_layout_only_change_is_reformatted():
     holes = compare("a.js", "function f() {\n  return [a,]\n}\n", "function f() {\n  return [a,,]\n}\n")
     assert [c.status for c in holes] == ["modified"]  # one more element
     assert compare("a.js", "const f = () => 1\n", "let f = () => 1\n")[0].status == "modified"
+    assert compare("a.js", "const f = () => ''\n", "const f = () => ';'\n")[0].status == "modified"
 
 
 def test_rename_with_same_code_pairs_up():

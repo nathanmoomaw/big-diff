@@ -142,6 +142,7 @@ _TS_DECL = {
 }
 _TS_FN_VALUES = {"arrow_function", "function_expression", "function", "generator_function"}
 _CLOSERS = ([")"], ["]"], ["}"])
+_TEXT = {"string_fragment", "template_string"}
 _HOLES = {",", "[", "(", "{"}  # a comma after these is an array hole (`[,]`, `[a,,]`), not a trailing comma
 
 
@@ -188,10 +189,11 @@ def _ts_symbols(lang: str, source: str, lines: list[str]) -> list[Symbol]:
             nonlocal named_at
             if x.type == "comment":
                 return
-            if x.child_count == 0 or x.type in ("string_fragment", "template_string"):
+            if x.child_count == 0 or x.type in _TEXT:
                 if x.start_byte == name.start_byte:
                     named_at = len(toks)
-                toks.append('"' if x.type in ("'", '"') else text(x))
+                # quotes all read as ", and string text gets a \x03 so `";"` isn't the `;` dropped below
+                toks.append('"' if x.type in ("'", '"') else "\x03" + text(x) if x.type in _TEXT else text(x))
                 return
             toks.append("\x01" + x.type)  # \x01/\x02 can't collide with a token's text
             for y in x.children:
