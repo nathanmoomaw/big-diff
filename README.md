@@ -4,7 +4,7 @@ A diff tool for code review. `git diff` shows changed lines. big diff shows chan
 
 ## What it does
 
-- **Code changes** (`bigdiff review`): lists every changed function, class and method, with its diff and the lines in other files that use it. A removed function that's still called comes first. New code comes last. Output is cut to a size limit, and it says what got cut. Python, JS, JSX, TS and TSX are parsed into symbols; other files show as plain diffs.
+- **Code changes** (`bigdiff review`): lists every changed function, class and method, with its diff and the lines in other files that use it. A removed function that's still called comes first. New code comes last. A function that only changed layout or comments, or only got a new name, takes one line with no diff. Output is cut to a size limit, and it says what got cut. Python, JS, JSX, TS and TSX are parsed into symbols; other files show as plain diffs.
 - **Model review** (`bigdiff check`): sends the changed files plus that report to Haiku, Sonnet or Opus and prints the bugs it finds, with the cost.
 - **Data** (`bigdiff data`): compares two JSON or CSV files by value, not by line. Lists of records can be matched by a field like `id`, and numbers can have a tolerance.
 - **Images** (`bigdiff image`): counts changed pixels, gives the changed area and can write a heatmap.
@@ -56,11 +56,11 @@ Used in 10 place(s):
 
 | first → last | change |
 | --- | --- |
-| 0 | symbol removed but still used somewhere |
+| 0 | symbol removed, or renamed, but its old name is still used somewhere |
 | 1 | signature changed and it has callers |
 | 2 | body changed and it's used in other files |
 | 3 | body changed; new code only tests use (a module, or a function nothing else calls); changed files that can't be parsed (shell, config) |
-| 4 | removed and unused; edits outside any symbol (imports, top level) |
+| 4 | removed and unused; layout-only changes and clean renames (one line each); edits outside any symbol (imports, top level) |
 | 5 | new symbols; docs |
 | 6–7 | binary files, lockfiles (one line each) |
 

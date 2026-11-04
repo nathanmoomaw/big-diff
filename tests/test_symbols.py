@@ -114,3 +114,43 @@ def test_wrapped_react_components_and_handlers():
 def test_only_known_wrappers_unwrap():
     src = "const doubled = items.map((x) => x * 2)\nconst [a] = useState(() => 0)\nconst v = useMemo(() => 1, [])\nconst X = memo(Inner, (p, n) => p === n)\n"
     assert symbols("a.js", src) == []
+
+
+def test_layout_only_change_is_reformatted():
+    old = "def f(a, b):\n    # sum\n    return g(a,b)\n"
+    new = "def f(a, b):\n    return g(\n        a, b,\n    )\n"
+    assert [c.status for c in compare("a.py", old, new)] == ["reformatted"]
+    assert [c.status for c in compare("a.py", old, old.replace("a,b", "b,a"))] == ["modified"]
+    js_old = "function load(url) {\n  return fetch(url, {a: 1,});  // hi\n}\n"
+    js_new = "function load(url) {\n  return fetch(\n    url,\n    { a: 1 }\n  )\n}\n"
+    (c,) = compare("a.js", js_old, js_new)
+    assert c.status == "reformatted" and not c.signature_changed and c.cosmetic
+    assert compare("a.js", js_old, js_old.replace("url, {", "url2, {"))[0].status == "modified"
+    assert compare("a.js", js_old, "export " + js_old)[0].status == "modified"  # new API, same body
+
+
+def test_rename_with_same_code_pairs_up():
+    (c,) = compare("a.py", "def old(x):\n    return x\n", "def new(x):\n    return x\n")
+    assert (c.status, c.old.name, c.new.name, c.lookup_name) == ("renamed", "old", "new", "old")
+    (c,) = compare("a.ts", "class K { a() { return 1 } }\n", "class K { b() { return 1 } }\n")
+    assert c.status == "renamed" and c.new.qualname == "K.b"
+    # body edited too, or two candidates: no guess
+    edited = compare("a.py", "def old(x):\n    return x\n", "def new(x):\n    return x + 1\n")
+    assert {c.status for c in edited} == {"added", "removed"}
+    two = compare("a.py", "def old(x):\n    return x\n", "def a(x):\n    return x\n\ndef b(x):\n    return x\n")
+    assert sorted(c.status for c in two) == ["added", "added", "removed"]
+
+
+def test_decorated_and_exported_flags():
+    src = (
+        "@Comp() export class A { @Input() m(x) { return 1 } n() {} }\n"
+        "export default function f() {}\nexport const g = () => 1\n"
+        "function h() {}\nconst k = () => 2\nexport { h as hh }\n"
+    )
+    s = {x.qualname: (x.decorated, x.exported) for x in symbols("a.ts", src)}
+    assert s == {
+        "A": (True, True), "A.m": (True, False), "A.n": (False, False),
+        "f": (False, True), "g": (False, True), "h": (False, True), "k": (False, False),
+    }  # fmt: skip
+    py = {x.qualname: x.decorated for x in symbols("a.py", PY)}
+    assert py["Box.area"] and not py["Box.size"]

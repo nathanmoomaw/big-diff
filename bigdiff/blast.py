@@ -56,8 +56,13 @@ def word_hits(repo: str | Path, ref: str | None, names: set[str]) -> dict[str, l
     return hits
 
 
+def wants_uses(c: SymbolChange) -> bool:
+    """A reformatted symbol behaves as before, so who uses it doesn't matter."""
+    return c.status != "reformatted" and searchable(c.lookup_name)
+
+
 def symbol_names(changes: list[SymbolChange]) -> set[str]:
-    return {c.sym.name for c in changes if searchable(c.sym.name)}
+    return {c.lookup_name for c in changes if wants_uses(c)}
 
 
 def uses_many(
@@ -67,20 +72,23 @@ def uses_many(
     max_sites: int = MAX_SITES,
     hits: dict[str, list[Site]] | None = None,
 ) -> list[Uses | None]:
-    """Uses of each change (aligned with `changes`; None for generic names) at ref, outside each
-    symbol's own definition. `hits` from a shared `word_hits` call, or one grep here."""
+    """Uses of each change (aligned with `changes`; None for generic names and reformatted code) at
+    ref, outside each symbol's own definition; a rename's old name anywhere. `hits` from a shared
+    `word_hits` call, or one grep here."""
     if hits is None:
         hits = word_hits(repo, ref, symbol_names(changes))
     result: list[Uses | None] = []
     for c in changes:
-        if not searchable(c.sym.name):
+        if not wants_uses(c):
             result.append(None)
             continue
-        own = c.new  # a removed symbol has no definition left at head to exclude
-        sites = [s for s in hits[c.sym.name] if not (own and s.path == c.path and own.start <= s.line <= own.end)]
+        # a removed symbol has no definition left at head to exclude; a renamed one calling its old
+        # name (recursion) is broken too
+        own = c.new if c.status != "renamed" else None
+        sites = [s for s in hits[c.lookup_name] if not (own and s.path == c.path and own.start <= s.line <= own.end)]
         # callers in other files first: those are the ones a file-local review can't see
         sites.sort(key=lambda s: (s.path == c.path, s.path, s.line))
-        result.append(Uses(c.sym.name, len(sites), sites[:max_sites], only_tests({s.path for s in sites})))
+        result.append(Uses(c.lookup_name, len(sites), sites[:max_sites], only_tests({s.path for s in sites})))
     return result
 
 
@@ -150,14 +158,13 @@ def orphans(mods: dict[str, str], hits: dict[str, list[Site]]) -> dict[str, list
     return found
 
 
-def orphan_symbol(c: SymbolChange, u: Uses | None, first_line: str) -> str | None:
+def orphan_symbol(c: SymbolChange, u: Uses | None) -> str | None:
     """Why a new symbol looks unused, or None. Only tests using it counts unless it's decorated (a
     route or hook is used through its decorator). Nothing using it counts only for a plain
     function or class: methods can be overrides, exported names can be API. The caller has
     already left out test files and entry points."""
-    head = first_line.lstrip()
-    if c.status != "added" or u is None or u.only_tests is None or head.startswith("@"):
+    if c.status != "added" or u is None or u.only_tests is None or c.sym.decorated:
         return None
-    if not u.only_tests and (c.sym.kind == "method" or head.startswith("export")):
+    if not u.only_tests and (c.sym.kind == "method" or c.sym.exported):
         return None
     return unused(u.only_tests, "use")
