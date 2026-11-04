@@ -82,9 +82,8 @@ def uses_many(
         if not wants_uses(c):
             result.append(None)
             continue
-        # a removed symbol has no definition left at head to exclude; a renamed one calling its old
-        # name (recursion) is broken too
-        own = c.new if c.status != "renamed" else None
+        # a gone name has no definition left at head to exclude: even a renamed body calling it is broken
+        own = None if c.name_gone else c.new
         sites = [s for s in hits[c.lookup_name] if not (own and s.path == c.path and own.start <= s.line <= own.end)]
         # callers in other files first: those are the ones a file-local review can't see
         sites.sort(key=lambda s: (s.path == c.path, s.path, s.line))

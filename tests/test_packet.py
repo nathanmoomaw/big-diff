@@ -162,11 +162,13 @@ def test_rename_still_called_by_old_name_is_priority_zero(repo):
     p = packet.build(repo.root)
     first = p.items[0]
     assert first.priority == packet.Prio.STILL_REFERENCED and "renamed" in first.tags
-    assert first.title == "function `total` renamed to `grand_total`, code unchanged, but `total` is still used"
+    assert first.title == "function `total` renamed to `grand_total`, code unchanged"
+    assert "still referenced" in first.tags
     assert first.body == "" and any(s.path == "app.py" for s in first.uses.sites)
     repo.write("app.py", APP.replace("total", "grand_total"))
     (item,) = [i for i in packet.build(repo.root).items if i.path == "lib.py"]
-    assert item.priority == packet.Prio.MINOR and item.uses is None and "still" not in item.title
+    assert item.priority == packet.Prio.MINOR and "still referenced" not in item.tags
+    assert "No uses of `total` found" in item.render()
 
 
 def test_reformatted_symbol_is_one_line(repo):
