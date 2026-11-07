@@ -26,7 +26,7 @@ def review_packet(
 def review_changes(repo: str, base: str = "HEAD", head: str | None = None, model: str = "haiku") -> str:
     """One model review (haiku, sonnet or opus; prices in bigdiff/models.py) of the changed files from base to
     head, with the review packet as context. Bench: sonnet caught the most real bugs, haiku is the cheap pass.
-    Needs the `review` extra and an Anthropic key."""
+    Needs the `review` extra, plus the `claude` CLI logged in (default) or an Anthropic key (see bigdiff/review.py)."""
     if model not in MODELS:
         raise ValueError(f"model must be one of {', '.join(MODELS)} (got {model!r})")
     try:

@@ -17,6 +17,8 @@
 
 ## Completed
 
+- [x] Review on Claude Code login (2026-11-07): `BIGDIFF_REVIEW_BACKEND=claude|api`, default `claude -p` (no tools/settings/MCP, `ANTHROPIC_API_KEY` stripped) when the CLI is on PATH, so reviews use subscription usage instead of API billing; cost shown at API rates
+
 - [x] No-op detection (2026-11-04): a symbol whose code is the same apart from layout, comments, quotes, `;` and trailing commas is `reformatted` (one line); a removed + added pair with the same code is `renamed`, ranked first if the old name is still used. `Symbol.decorated` / `exported` come from the parsers, so the orphan check no longer reads the first line
 
 - [x] Orphan symbols (2026-10-29): a new function only tests call, or a plain one nothing uses; entry points (scripts, handlers, route/function folders) exempt. 3 real hits, no false alarms, in ~280 commits across 9 repos

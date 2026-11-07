@@ -68,11 +68,15 @@ For browser code it also lists other code that listens for the same events. If y
 
 ## Ask a model to review it
 
-Needs an Anthropic API key (`ANTHROPIC_API_KEY`, or `ant auth login`).
+Two ways to run it, picked with `BIGDIFF_REVIEW_BACKEND`:
+
+- `claude` (the default when the `claude` CLI is on your PATH): a headless `claude -p` run with no tools, settings or MCP servers. It uses your Claude Code login, so it counts against your subscription usage and isn't billed per token. `ANTHROPIC_API_KEY` is removed from that run's environment, so a key left in your shell can't quietly switch it to API billing. The cost it prints is what the call would have cost at API rates.
+- `api`: the Messages API through the Anthropic SDK, billed to `ANTHROPIC_API_KEY` (or an `ant auth login` profile).
 
 ```bash
-uv run --extra review bigdiff check              # Haiku 5.5, about $0.004
+uv run --extra review bigdiff check              # Haiku 5.5, about $0.004 at API rates
 uv run --extra review bigdiff check main --model sonnet   # about $0.03
+BIGDIFF_REVIEW_BACKEND=api uv run --extra review bigdiff check   # force the API
 ```
 
 Options are the same as `review`, plus `--model haiku|sonnet|opus` and `--effort low|medium|high|xhigh|max`.
