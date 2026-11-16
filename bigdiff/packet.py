@@ -13,7 +13,7 @@ from dataclasses import asdict, dataclass, field, replace
 from enum import IntEnum
 from pathlib import Path
 
-from . import blast, events
+from . import blast, calls, events
 from .gitdiff import FileDiff, Hunk, diff_files, read_at, resolve
 from .symbols import SymbolChange, compare, language
 
@@ -26,7 +26,7 @@ CONFIG_SUFFIXES = {".json", ".toml", ".yaml", ".yml", ".sh", ".css", ".html", ".
 class Prio(IntEnum):
     """Packet order, most important first."""
 
-    STILL_REFERENCED = 0  # removed, but something still uses it
+    STILL_REFERENCED = 0  # removed, but something still uses it; a call the new signature breaks
     SIGNATURE_WITH_CALLERS = 1
     USED_ELSEWHERE = 2  # body changed, used in other files
     MODIFIED = 3  # body changed; new modules nothing imports; edits in source/config files without symbols
@@ -61,10 +61,14 @@ class Item:
     uses: blast.Uses | None = None
     tags: list[str] = field(default_factory=list)
     events: events.EventLinks | None = None  # other code sharing its events
+    breaks: list[blast.Site] = field(default_factory=list)  # calls that fit the old signature, not the new
 
     def render(self) -> str:
         head = f"### {self.title}" + (f"  [{', '.join(self.tags)}]" if self.tags else "")
         parts = [head, f"`{self.path}`"] + (["```diff\n" + self.body.rstrip() + "\n```"] if self.body else [])
+        if self.breaks:
+            parts.append(f"Calls that fit the old signature but not the new one ({len(self.breaks)}):")
+            parts += [f"- `{s.path}:{s.line}` {s.text}" for s in self.breaks]
         if self.uses and self.uses.sites:
             more = (
                 f" (showing {len(self.uses.sites)} of {self.uses.total})"
@@ -185,7 +189,7 @@ def _own_text(lines: list[str], sym, others: list) -> str:
 
 
 def _rank(
-    c: SymbolChange, u: blast.Uses | None, links: events.EventLinks | None, orphan: bool = False
+    c: SymbolChange, u: blast.Uses | None, links: events.EventLinks | None, orphan: bool = False, breaks: bool = False
 ) -> tuple[Prio, list[str]]:
     callers = bool(u and u.total)
     other_files = bool(u and any(s.path != c.path for s in u.sites))
@@ -196,6 +200,7 @@ def _rank(
             ("removed", c.status == "removed"),
             ("renamed", c.status == "renamed"),
             ("signature changed", c.signature_changed),
+            ("breaks callers", breaks),
             ("used in other files", other_files),
             ("event-coupled", coupled),
             ("orphan", orphan),
@@ -204,6 +209,8 @@ def _rank(
     ]
     if c.name_gone and callers:
         return Prio.STILL_REFERENCED, tags + ["still referenced"]
+    if breaks:
+        return Prio.STILL_REFERENCED, tags
     if c.signature_changed and callers:
         return Prio.SIGNATURE_WITH_CALLERS, tags
     if other_files and c.status == "modified" or coupled:
@@ -268,6 +275,13 @@ def build(
         title = f"new module nothing imports: {blast.unused(tests, 'mention')}"
         items.append(Item(Prio.MODIFIED, path, title, "", tags=["orphan"]))
     ev_index: events.Index | None = None  # built on first need: one grep for every event line
+    heads: dict[str, str | None] = dict(sources)  # callers' text at head, read on first need
+
+    def read_head(path: str) -> str | None:
+        if path not in heads:
+            heads[path] = read_at(repo, head, path)
+        return heads[path]
+
     for f, old_lines, new_lines, changes in parsed:
         covered_new: set[int] = set()
         covered_old: set[int] = set()
@@ -292,7 +306,17 @@ def build(
                     ev_index.sources.update(sources)
                 links = ev_index.edges(f.path, names)
             unused = blast.orphan_symbol(c, u) if check_unused else None
-            prio, tags = _rank(c, u, links, bool(unused))
+            breaks = []
+            if c.signature_changed and u and u.total:
+                sites = hits[c.lookup_name]
+                by_path: dict[str, set[int]] = {}
+                for s in sites:
+                    by_path.setdefault(s.path, set()).add(s.line)
+                at = {(s.path, s.line): s for s in sites}
+                old_sig, new_sig = c.old.signature, c.new.signature  # type: ignore[union-attr]
+                bad = calls.broken(f.path, c.sym.kind, c.lookup_name, old_sig, new_sig, by_path, read_head)
+                breaks = [at[k] for k in bad]
+            prio, tags = _rank(c, u, links, bool(unused), bool(breaks))
             title = f"{c.sym.kind} `{c.sym.qualname}` {c.status}" + (f": {unused}" if unused else "")
             if c.signature_changed:
                 title += f": `{c.old.signature}` → `{c.new.signature}`"  # type: ignore[union-attr]
@@ -302,7 +326,7 @@ def build(
             elif c.status == "reformatted":
                 title += " (layout only, same code)"
             body = "" if c.cosmetic else "\n".join(h.text() for h in _symbol_hunks(old_lines, new_lines, c))
-            items.append(Item(prio, f.path, title, body, u, tags, links))
+            items.append(Item(prio, f.path, title, body, u, tags, links, breaks))
             if c.new:
                 covered_new |= set(range(c.new.start, c.new.end + 1))
             if c.old:

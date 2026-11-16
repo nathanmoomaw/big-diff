@@ -56,7 +56,7 @@ Used in 10 place(s):
 
 | first → last | change |
 | --- | --- |
-| 0 | symbol removed, or renamed, but its old name is still used somewhere |
+| 0 | symbol removed, or renamed, but its old name is still used somewhere; a call that fit the old parameter list and doesn't fit the new one (listed under the symbol) |
 | 1 | signature changed and it has callers |
 | 2 | body changed and it's used in other files |
 | 3 | body changed; new code only tests use (a module, or a function nothing else calls); changed files that can't be parsed (shell, config) |

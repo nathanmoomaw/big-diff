@@ -8,7 +8,7 @@
 - [ ] Viewer v1: packet view in site/ (symbol tree, callers panel, image diffs inline); v0 is `--format html`
 - [ ] File identity from `git diff --raw -z -M` (exact paths, no `+++`/rename text parsing), patch text only for hunks
 - [ ] Read file versions through one `git cat-file --batch` process instead of a `git show` per file; precompute symbol nesting once per file for `_own_hash`
-- [ ] Signature-break callers: when a function's parameters change, flag the call sites whose argument count (or keyword names) no longer fits
+- [ ] Signature-break callers, more cases: constructors (`new X(…)` / `X(…)` for a class's `__init__`/`constructor`), multi-line calls whose name sits on a later line than the call
 - [ ] `untested` tag: a changed symbol no test file mentions (same `word_hits` grep)
 - [ ] GitHub Action: run `bigdiff check` on a PR and post the packet / findings as a comment
 - [ ] No-op detection, more cases: arrow-param parens (`t =>` vs `(t) =>`), a rename that also edits the body (pair by similarity), whole-file moves
@@ -16,6 +16,8 @@
 - [ ] More languages via tree-sitter: Go, Rust, Swift, CSS (selectors), HTML (ids/components)
 
 ## Completed
+
+- [x] Signature-break callers (2026-11-04): when parameters change, calls (Python, JS/TS) that fit the old list and not the new one are listed under the symbol and rank first (`breaks callers`); spreads are never counted
 
 - [x] No-op detection (2026-11-04): a symbol whose code is the same apart from layout, comments, quotes, `;` and trailing commas is `reformatted` (one line); a removed + added pair with the same code is `renamed`, ranked first if the old name is still used. `Symbol.decorated` / `exported` come from the parsers, so the orphan check no longer reads the first line
 

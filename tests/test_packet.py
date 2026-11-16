@@ -186,3 +186,14 @@ def test_exported_js_function_nothing_uses_is_not_an_orphan(repo):
                "function lonely() { return 2 }\n")
     titles = {i.title for i in packet.build(repo.root).items if "orphan" in i.tags}
     assert titles == {"function `lonely` added: nothing else uses it"}
+
+
+def test_signature_change_flags_calls_it_breaks(repo):
+    repo.write("lib.py", "def total(items, start=0):\n    return sum(items, start)\n")
+    repo.write("app.py", "from lib import total\n\nprint(total([1]))\nprint(total([1], 2))\nprint(total([1], start=3))\n")
+    repo.commit()
+    repo.write("lib.py", "def total(items, *, start=0):\n    return sum(items, start)\n")
+    first = packet.build(repo.root).items[0]
+    assert first.priority == packet.Prio.STILL_REFERENCED and "breaks callers" in first.tags
+    assert [(s.path, s.line) for s in first.breaks] == [("app.py", 4)]  # total([1], 2): start is keyword-only now
+    assert "Calls that fit the old signature but not the new one (1):" in first.render()
